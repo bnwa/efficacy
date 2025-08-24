@@ -1,0 +1,15 @@
+{
+  "name": "task",
+  "module": "index.ts",
+  "type": "module",
+  "private": true,
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "@sigma/rust-base64": "npm:@jsr/sigma__rust-base64"
+  }
+}
