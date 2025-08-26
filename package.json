@@ -1,6 +1,9 @@
 {
   "name": "task",
   "module": "index.ts",
+  "script": {
+    "repl": "tsx"
+  },
   "dependencies": {
     "@sigma/rust-base64": "npm:@jsr/sigma__rust-base64"
   },
