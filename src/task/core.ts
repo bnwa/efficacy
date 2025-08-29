@@ -1,128 +1,127 @@
 import type { IO } from '@lib/io'
 
-type TaskErr = {
-  ok: false
-  errs: string[]
-  canRetry: boolean
+type Success<T> = { ok: true,   value: T, progress?: Progress }
+type Failure<E> = { ok: false,  error: E, progress?: Progress }
+
+type Result<T, E> =
+  | Success<T>
+  | Failure<E>
+
+type Progress = {
+  total?: number
+  current?: number
 }
 
-type TaskUpdate<T> = {
-  ok: true
-  value: T
-  total: number
-  current: number
+type TaskExec<T, E> = AsyncGenerator<Result<T, E>, void, void >
+
+export function success<T>(value: T, progress?: Progress): Success<T> {
+  return { ok: true, value, progress }
 }
 
-type TaskState<T> =
-  | TaskUpdate<T>
-  | TaskErr
-
-type TaskExec<T> = AsyncGenerator<TaskState<T>, void, void>
-
-export function taskErr(canRetry: boolean, ...errs: string[]) : TaskErr {
-  return { ok: false, errs, canRetry }
+export function failure<E>(error: E, progress?: Progress) : Failure<E> {
+  return { ok: false, error, progress }
 }
 
-export function taskUpdate<T>(value: T, total = -1, current = -1) : TaskUpdate<T> {
-  return { ok: true, value, total, current }
-}
-
-export class Task<T, TaskIO extends Partial<IO>> {
-  total = -1
-  current = -1
+export class Task<T, E, TaskIO extends Partial<IO>> {
   run: typeof this.exec
-  protected constructor(private init: (io: TaskIO, signal?: AbortSignal) => TaskExec<T>) {
+
+  protected constructor(
+    private init: (io: TaskIO, signal?: AbortSignal) => TaskExec<T, E>
+  ) {
     this.run = this.exec.bind(this)
   }
 
-  static create<T, TaskIO extends Partial<IO>>(init: (io: TaskIO, signal?: AbortSignal) => TaskExec<T>) {
+  static create<T, E, TaskIO extends Partial<IO>>(
+    init: (io: TaskIO, signal?: AbortSignal) => TaskExec<T, E>
+  ) {
     return new Task(init)
   }
 
-  map<U>(fn: (value: T) => U) : Task<U,TaskIO> {
+  static of<T, E = never>(value: T): Task<T, E, {}> {
+    return new Task(async function*() : TaskExec<T,E> {
+      yield success(value, { total: 1, current: 1 })
+    })
+  }
+
+  static never<T, E>(value :E) : Task<T, E, {}> {
+    return new Task(async function*() : TaskExec<T,E> {
+      yield failure(value)
+    })
+  }
+
+  map<U>(fn: (value: T) => U): Task<U, E, TaskIO> {
     const prevTask = this.run
-    return Task.create(async function*(io: TaskIO,  signal?: AbortSignal) : TaskExec<U> {
-      for await (const prevState of prevTask(io, signal)) {
-        if (prevState.ok) {
-          const { value } = prevState
-          const { total } = prevState
-          const { current } = prevState
-          yield taskUpdate(fn(value), total, current)
+    return Task.create(async function*(io: TaskIO, signal?: AbortSignal): TaskExec<U, E> {
+      for await (const result of prevTask(io, signal)) {
+        if (result.ok) {
+          yield success(fn(result.value), result.progress)
         } else {
-          yield prevState
+          yield result
         }
       }
     })
   }
 
-  apply<U, NextIO extends TaskIO>(nextTask: Task<(value: T) => U, NextIO>) : Task<U, NextIO> {
+  mapError<F>(fn: (error: E) => F): Task<T, F, TaskIO> {
     const prevTask = this.run
-    return Task.create(async function*(io: NextIO, signal?: AbortSignal) : TaskExec<U> {
-      const nextStep = nextTask.run(io, signal)
-      const nextState = await nextStep.next()
-      if (nextState.done) {
-        const msg = "Encountered errant execution of Task['apply']: Missing fn"
-        return yield taskErr(false, msg)
-      }
-      const nextTaskState = nextState.value
-      if (!nextTaskState.ok) {
-        return yield nextTaskState
-      }
-      const { total } = nextTaskState
-      const { current } = nextTaskState
-      const { value: fn } = nextTaskState
-      for await (const prevState of prevTask(io, signal)) {
-        if (!prevState.ok) return yield prevState
-        yield taskUpdate(fn(prevState.value), total, current)
-      }
-    })
-  }
-
-  flatMap<U, NextIO extends TaskIO>(fn: (x: T) => Task<U, NextIO>) : Task<U, NextIO> {
-    const prevTask = this.run
-    return Task.create(async function*(io: NextIO, signal?: AbortSignal) : TaskExec<U> {
-      for await (const prevState of prevTask(io, signal)) {
-        if (prevState.ok) {
-          const next = fn(prevState.value)
-          for await (const nextState of next.run(io, signal)) {
-            if (nextState.ok) {
-              const { value } = nextState
-              const { total } = nextState
-              const { current } = nextState
-              yield taskUpdate(value, total, current)
-            } else {
-              yield nextState
-            }
-          }
+    return Task.create(async function*(io: TaskIO, signal?: AbortSignal): TaskExec<T, F> {
+      for await (const result of prevTask(io, signal)) {
+        if (result.ok) {
+          yield result
         } else {
-          yield prevState
+          yield failure(fn(result.error), result.progress)
         }
       }
     })
   }
 
-  orElse<NextIO extends TaskIO>(fn: (tskErr: TaskErr) => Task<T, NextIO>) : Task<T, NextIO> {
+  flatMap<U, F, NextIO extends TaskIO>(
+    fn: (value: T) => Task<U, F, NextIO>
+  ): Task<U, E | F, NextIO> {
     const prevTask = this.run
-    return Task.create(async function*(io: NextIO, signal?: AbortSignal) : TaskExec<T> {
-      for await(const prevState of prevTask(io, signal)) {
-        if (prevState.ok) {
-          yield prevState
-        } else {
-          const nextTask = fn(prevState)
+    return Task.create(async function*(io: NextIO, signal?: AbortSignal): TaskExec<U, E | F> {
+      for await (const result of prevTask(io, signal)) {
+        if (result.ok) {
+          const nextTask = fn(result.value)
           yield* nextTask.run(io, signal)
+        } else {
+          yield result
         }
       }
     })
   }
 
-  private async* exec(io: TaskIO, signal?: AbortSignal) : TaskExec<T> {
-    for await (const taskState of this.init(io, signal)) {
-      if (taskState.ok) {
-        this.total = taskState.total
-        this.current = taskState.current
+  orElseMap(fn: (error: E) => T): Task<T, never, TaskIO> {
+    const prevTask = this.run
+    return Task.create(async function*(io: TaskIO, signal?: AbortSignal): TaskExec<T, never> {
+      for await (const state of prevTask(io, signal)) {
+        if (state.ok) {
+          yield state
+        } else {
+          yield success(fn(state.error), state.progress)
+        }
       }
-      yield taskState
-    }
+    })
+  }
+
+  orElse<F, NextIO extends TaskIO>(
+    fn: (error: E) => Task<T, F, NextIO>
+  ): Task<T, F, NextIO> {
+    const prevTask = this.run
+    return Task.create(async function*(io: NextIO, signal?: AbortSignal): TaskExec<T, F> {
+      for await (const state of prevTask(io, signal)) {
+        if (state.ok) {
+          yield state
+        } else {
+          const next = fn(state.error)
+          yield* next.run(io, signal)
+        }
+      }
+    })
+  }
+
+  private async* exec(io: TaskIO, signal?: AbortSignal): TaskExec<T, E> {
+    yield* this.init(io, signal)
   }
 
 }
