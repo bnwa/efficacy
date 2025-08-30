@@ -1,5 +1,10 @@
 import type { IO } from '@lib/io'
 
+import { ok as progOk } from '@lib/prog-result'
+import { fail as progFail } from '@lib/prog-result'
+
+import { Progression } from '@lib/progress'
+
 import type { Failure } from '@lib/result'
 import type { Result } from '@lib/result'
 import { ok } from '@lib/result'
@@ -77,6 +82,18 @@ export class Task<T, E, TaskIO extends Partial<IO>> {
       const result = await prev(io, signal)
       if (!isFailure(result)) return result
       else return ok(fn(result.error))
+    })
+  }
+
+  toProgression() : Progression<T,E,TaskIO> {
+    const prev = this.run
+    return Progression.create(async function*(io, signal) {
+      const result = await prev(io, signal)
+      if (isFailure(result)) {
+        yield progFail(result.error, { current: 1, total: 1 })
+      } else {
+        yield progOk(result.value, { current: 1, total: 1 })
+      }
     })
   }
 }

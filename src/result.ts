@@ -16,4 +16,3 @@ export function fail<T, E>(error: E) : Result<T,E> {
 export function isFailure<T,E>(result: Result<T,E>) : result is Failure<E> {
   return !result.ok
 }
-

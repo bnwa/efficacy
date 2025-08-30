@@ -1,37 +1,32 @@
 import type { IO } from '@lib/io'
 
-import type { Failure } from '@lib/result'
-import type { Success } from '@lib/result'
+import { ok as taskOk } from '@lib/result'
+import { fail as taskFail } from '@lib/result'
 
-export type Progress = {
-  total?: number
-  current?: number
-}
+import type { ProgressResult } from '@lib/prog-result'
+import { ok } from '@lib/prog-result'
+import { fail } from '@lib/prog-result'
 
-export type ProgressOk<T> = Success<T> & { progress?: Progress }
-
-export type ProgressFail<E> = Failure<E> & { progress?: Progress }
-
-export type ProgressResult<T, E> =
-  | ProgressOk<T>
-  | ProgressFail<E>
+import { Task } from '@lib/task'
 
 export type StreamExec<T, E> = AsyncGenerator<ProgressResult<T, E>, void, void >
 
 export type StreamInit<T, E, TaskIO extends Partial<IO>> =
   (io: TaskIO, signal?: AbortSignal) => StreamExec<T, E>
 
-export function ok<T, E = never>(value: T, progress?: Progress) : ProgressResult<T, E> {
-  return { ok: true, value, progress }
+
+async function collectResults<T, E, TaskIO extends Partial<IO>>(
+  stream: Progression<T, E, TaskIO>,
+  io: TaskIO,
+  signal?: AbortSignal
+) : Promise<ProgressResult<T, E>[]> {
+  const results = []
+  for await (const result of stream.run(io, signal)) {
+    results.push(result)
+  }
+  return results
 }
 
-export function fail<T,E>(error: E, progress?: Progress) : ProgressResult<T, E> {
-  return { ok: false, error, progress }
-}
-
-export function isFailure<T,E>(result: ProgressResult<T,E>) : result is ProgressFail<E> {
-  return !result.ok
-}
 
 export class Progression<T, E, TaskIO extends Partial<IO>> {
   run: StreamInit<T, E, TaskIO>
@@ -126,6 +121,20 @@ export class Progression<T, E, TaskIO extends Partial<IO>> {
           yield* next.run(io, signal)
         }
       }
+    })
+  }
+
+  toTask() : Task<T, E, TaskIO> {
+    const prev = this
+    return Task.create<T, E, TaskIO>(async (io, signal) => {
+      const results = await collectResults<T, E, TaskIO>(prev, io, signal)
+      const tail = results[results.length - 1]
+      if (results.length === 0 || !tail) {
+        throw new Error(`Progression yielded no results`)
+      }
+      return tail.ok ?
+        taskOk(tail.value) :
+        taskFail(tail.error)
     })
   }
 }

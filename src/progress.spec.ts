@@ -2,10 +2,11 @@ import { test, expect } from "bun:test"
 
 import type { IO } from '@lib/io'
 
-import type { ProgressResult } from '@lib/progress'
+import type { ProgressResult } from '@lib/prog-result'
+import { ok } from '@lib/prog-result'
+import { fail } from '@lib/prog-result'
+
 import { Progression } from '@lib/progress'
-import { ok } from '@lib/progress'
-import { fail } from '@lib/progress'
 
 // Custom error types for testing
 type TestError = {
