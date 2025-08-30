@@ -2,11 +2,11 @@ import { test, expect } from "bun:test"
 
 import type { IO } from '@lib/io'
 
-import type { ProgressResult } from '@lib/prog-result'
-import { ok } from '@lib/prog-result'
-import { fail } from '@lib/prog-result'
+import type { Progress } from '@lib/stream'
+import { Stream } from '@lib/stream'
+import { ok } from '@lib/stream'
+import { fail } from '@lib/stream'
 
-import { Progression } from '@lib/progress'
 
 // Custom error types for testing
 type TestError = {
@@ -20,27 +20,27 @@ type NetworkError = {
 }
 
 // TypeScript assertion functions for type narrowing
-function assertIsSuccess<T, E>(result: ProgressResult<T, E>): asserts result is ProgressResult<T, E> & { ok: true } {
+function assertIsSuccess<T, E>(result: Progress<T, E>): asserts result is Progress<T, E> & { ok: true } {
   expect(result.ok).toBe(true)
 }
 
-function assertIsFailure<T, E>(result: ProgressResult<T, E>): asserts result is ProgressResult<T, E> & { ok: false } {
+function assertIsFailure<T, E>(result: Progress<T, E>): asserts result is Progress<T, E> & { ok: false } {
   expect(result.ok).toBe(false)
 }
 
-function assertHasProgress<T, E>(result: ProgressResult<T, E>): asserts result is ProgressResult<T, E> & { progress: NonNullable<ProgressResult<T, E>['progress']> } {
+function assertHasProgress<T, E>(result: Progress<T, E>): asserts result is Progress<T, E> & { progress: NonNullable<Progress<T, E>['progress']> } {
   expect(result.progress).toBeDefined()
 }
 
-async function collectResults<T, E>(task: Progression<T, E, {}>, io = {}): Promise<Array<ProgressResult<T, E>>> {
-  const states: Array<ProgressResult<T, E>> = []
+async function collectProgress<T, E>(task: Stream<T, E, {}>, io = {}): Promise<Array<Progress<T, E>>> {
+  const states: Array<Progress<T, E>> = []
   for await (const state of task.run(io)) {
     states.push(state)
   }
   return states
 }
 
-async function runToSuccess<T, E>(task: Progression<T, E, {}>, io = {}): Promise<T | null> {
+async function runToSuccess<T, E>(task: Stream<T, E, {}>, io = {}): Promise<T | null> {
   let lastValue = null
   for await (const state of task.run(io)) {
     if (state.ok) {
@@ -53,7 +53,7 @@ async function runToSuccess<T, E>(task: Progression<T, E, {}>, io = {}): Promise
 }
 
 test('Functor identity law: task.map(x => x) ≡ task', async () => {
-  const task = Progression.const<number>(42)
+  const task = Stream.const<number>(42)
   const mappedTask = task.map(x => x)
 
   const originalValue = await runToSuccess(task)
@@ -66,7 +66,7 @@ test('Functor composition law: task.map(f).map(g) ≡ task.map(x => g(f(x)))', a
   const f = (x: number) => x * 2
   const g = (x: number) => x + 1
 
-  const task = Progression.const<number>(5)
+  const task = Stream.const<number>(5)
   const composed1 = task.map(f).map(g)
   const composed2 = task.map(x => g(f(x)))
 
@@ -80,7 +80,7 @@ test('Functor composition produces expected mathematical result', async () => {
   const f = (x: number) => x * 2
   const g = (x: number) => x + 1
 
-  const task = Progression.const<number>(5)
+  const task = Stream.const<number>(5)
   const composed = task.map(f).map(g)
   const result = await runToSuccess(composed)
 
@@ -88,9 +88,9 @@ test('Functor composition produces expected mathematical result', async () => {
 })
 
 test('Map preserves errors unchanged', async () => {
-  const errorTask = Progression.never<number, TestError>({ message: 'test error', canRetry: true })
+  const errorTask = Stream.never<number, TestError>({ message: 'test error', canRetry: true })
   const mappedError = errorTask.map(x => x)
-  const errorStates = await collectResults(mappedError)
+  const errorStates = await collectProgress(mappedError)
 
   expect(errorStates.length).toBeGreaterThan(0)
   const firstState = errorStates[0]
@@ -101,20 +101,20 @@ test('Map preserves errors unchanged', async () => {
 })
 
 test('Task.const creates task with correct value', async () => {
-  const task = Progression.const<number>(42)
+  const task = Stream.const<number>(42)
   const result = await runToSuccess(task)
 
   expect(result).toBe(42)
 })
 
 test('Task.const yields exactly one state', async () => {
-  const states = await collectResults(Progression.const<string>('test'))
+  const states = await collectProgress(Stream.const<string>('test'))
 
   expect(states.length).toBe(1)
 })
 
 test('Task.const sets progress total to 1', async () => {
-  const states = await collectResults(Progression.const<string>('test'))
+  const states = await collectProgress(Stream.const<string>('test'))
   const state = states[0]
 
   expect(state).toBeDefined()
@@ -126,8 +126,8 @@ test('Task.const sets progress total to 1', async () => {
 })
 
 test('Monad left identity law: Progression.const(a).flatMap(f) ≡ f(a)', async () => {
-  const f = (x: number) => Progression.const<number>(x * 2)
-  const leftIdentity1 = Progression.const<number>(21).flatMap(f)
+  const f = (x: number) => Stream.const<number>(x * 2)
+  const leftIdentity1 = Stream.const<number>(21).flatMap(f)
   const leftIdentity2 = f(21)
 
   const leftResult1 = await runToSuccess(leftIdentity1)
@@ -137,16 +137,16 @@ test('Monad left identity law: Progression.const(a).flatMap(f) ≡ f(a)', async 
 })
 
 test('Monad left identity produces expected mathematical result', async () => {
-  const f = (x: number) => Progression.const<number>(x * 2)
-  const leftIdentity = Progression.const<number>(21).flatMap(f)
+  const f = (x: number) => Stream.const<number>(x * 2)
+  const leftIdentity = Stream.const<number>(21).flatMap(f)
   const result = await runToSuccess(leftIdentity)
 
   expect(result).toBe(42)
 })
 
 test('Monad right identity law: m.flatMap(Progression.const) ≡ m', async () => {
-  const task = Progression.const<number>(42)
-  const rightIdentity = task.flatMap(x => Progression.const<number>(x))
+  const task = Stream.const<number>(42)
+  const rightIdentity = task.flatMap(x => Stream.const<number>(x))
 
   const original = await runToSuccess(task)
   const rightResult = await runToSuccess(rightIdentity)
@@ -155,10 +155,10 @@ test('Monad right identity law: m.flatMap(Progression.const) ≡ m', async () =>
 })
 
 test('Monad associativity law: m.flatMap(f).flatMap(g) ≡ m.flatMap(x => f(x).flatMap(g))', async () => {
-  const f = (x: number) => Progression.const<number>(x * 2)
-  const g = (x: number) => Progression.const<number>(x + 1)
+  const f = (x: number) => Stream.const<number>(x * 2)
+  const g = (x: number) => Stream.const<number>(x + 1)
 
-  const task = Progression.const<number>(5)
+  const task = Stream.const<number>(5)
   const assoc1 = task.flatMap(f).flatMap(g)
   const assoc2 = task.flatMap(x => f(x).flatMap(g))
 
@@ -169,10 +169,10 @@ test('Monad associativity law: m.flatMap(f).flatMap(g) ≡ m.flatMap(x => f(x).f
 })
 
 test('Monad associativity produces expected mathematical result', async () => {
-  const f = (x: number) => Progression.const<number>(x * 2)
-  const g = (x: number) => Progression.const<number>(x + 1)
+  const f = (x: number) => Stream.const<number>(x * 2)
+  const g = (x: number) => Stream.const<number>(x + 1)
 
-  const task = Progression.const<number>(5)
+  const task = Stream.const<number>(5)
   const assoc = task.flatMap(f).flatMap(g)
   const result = await runToSuccess(assoc)
 
@@ -180,10 +180,10 @@ test('Monad associativity produces expected mathematical result', async () => {
 })
 
 test('MapError transforms error type correctly', async () => {
-  const errorTask = Progression.never<string, TestError>({ message: 'original error', canRetry: true })
+  const errorTask = Stream.never<string, TestError>({ message: 'original error', canRetry: true })
   const mappedErrorTask = errorTask.mapError(err => ({ code: 500, reason: err.message }))
 
-  const results = await collectResults(mappedErrorTask)
+  const results = await collectProgress(mappedErrorTask)
   const result = results[0]
 
   expect(result).toBeDefined()
@@ -194,10 +194,10 @@ test('MapError transforms error type correctly', async () => {
 })
 
 test('MapError preserves original error data in transformation', async () => {
-  const errorTask = Progression.never<string, TestError>({ message: 'original error', canRetry: true })
+  const errorTask = Stream.never<string, TestError>({ message: 'original error', canRetry: true })
   const mappedErrorTask = errorTask.mapError(err => ({ code: 500, reason: err.message }))
 
-  const results = await collectResults(mappedErrorTask)
+  const results = await collectProgress(mappedErrorTask)
   const result = results[0]
 
   expect(result).toBeDefined()
@@ -208,8 +208,8 @@ test('MapError preserves original error data in transformation', async () => {
 })
 
 test('orElse handles errors by providing recovery value', async () => {
-  const failingTask = Progression.never<string, TestError>({ message: 'initial error', canRetry: true })
-  const recoveryTask = Progression.const<string>('recovered')
+  const failingTask = Stream.never<string, TestError>({ message: 'initial error', canRetry: true })
+  const recoveryTask = Stream.const<string>('recovered')
   const recoveredTask = failingTask.orElse(() => recoveryTask)
 
   const result = await runToSuccess(recoveredTask)
@@ -218,8 +218,8 @@ test('orElse handles errors by providing recovery value', async () => {
 })
 
 test('orElse passes through successful values unchanged', async () => {
-  const successTask = Progression.const<string>('success')
-  const notUsedTask = Progression.const<string>('not used')
+  const successTask = Stream.const<string>('success')
+  const notUsedTask = Stream.const<string>('not used')
   const passedThroughTask = successTask.orElse(() => notUsedTask)
 
   const result = await runToSuccess(passedThroughTask)
@@ -228,9 +228,9 @@ test('orElse passes through successful values unchanged', async () => {
 })
 
 test('orElse handles chained error recovery', async () => {
-  const error1 = Progression.never<string, TestError>({ message: 'error 1', canRetry: false })
-  const error2 = Progression.never<string, NetworkError>({ code: 404, reason: 'not found' })
-  const recovery = Progression.const<string>('final recovery')
+  const error1 = Stream.never<string, TestError>({ message: 'error 1', canRetry: false })
+  const error2 = Stream.never<string, NetworkError>({ code: 404, reason: 'not found' })
+  const recovery = Stream.const<string>('final recovery')
 
   const chainedRecovery = error1.orElse(() => error2).orElse(() => recovery)
   const result = await runToSuccess(chainedRecovery)
@@ -239,7 +239,7 @@ test('orElse handles chained error recovery', async () => {
 })
 
 test('orElseMap converts errors to success values', async () => {
-  const failingTask = Progression.never<number, TestError>({ message: 'calculation failed', canRetry: false })
+  const failingTask = Stream.never<number, TestError>({ message: 'calculation failed', canRetry: false })
   const recoveredTask = failingTask.orElseMap(_err => 42)
 
   const result = await runToSuccess(recoveredTask)
@@ -248,7 +248,7 @@ test('orElseMap converts errors to success values', async () => {
 })
 
 test('orElseMap passes through successful values unchanged', async () => {
-  const successTask = Progression.const<number>(100)
+  const successTask = Stream.const<number>(100)
   const passedThroughTask = successTask.orElseMap(() => 999)
 
   const result = await runToSuccess(passedThroughTask)
@@ -257,11 +257,11 @@ test('orElseMap passes through successful values unchanged', async () => {
 })
 
 test('orElseMap preserves progress information when converting errors', async () => {
-  const errorWithProgress = Progression.create<number, TestError, {}>(async function*() {
+  const errorWithProgress = Stream.create<number, TestError, {}>(async function*() {
     yield fail<number, TestError>({ message: 'error', canRetry: false }, { total: 5, current: 3 })
   })
   const recoveredWithProgress = errorWithProgress.orElseMap(_err => 999)
-  const results = await collectResults(recoveredWithProgress)
+  const results = await collectProgress(recoveredWithProgress)
   const result = results[0]
 
   expect(result).toBeDefined()
@@ -273,25 +273,25 @@ test('orElseMap preserves progress information when converting errors', async ()
 })
 
 test('Progression yields correct number of progress updates', async () => {
-  const progressTask = Progression.create<string, never, {}>(async function*() {
+  const progressTask = Stream.create<string, never, {}>(async function*() {
     yield ok('step1', { total: 3, current: 1 })
     yield ok('step2', { total: 3, current: 2 })
     yield ok('step3', { total: 3, current: 3 })
   })
 
-  const states = await collectResults(progressTask)
+  const states = await collectProgress(progressTask)
 
   expect(states.length).toBe(3)
 })
 
 test('Progress tracking current value increments correctly', async () => {
-  const progressTask = Progression.create<string, never, {}>(async function*() {
+  const progressTask = Stream.create<string, never, {}>(async function*() {
     yield ok('step1', { total: 3, current: 1 })
     yield ok('step2', { total: 3, current: 2 })
     yield ok('step3', { total: 3, current: 3 })
   })
 
-  const states = await collectResults(progressTask)
+  const states = await collectProgress(progressTask)
   const secondState = states[1]
 
   expect(secondState).toBeDefined()
@@ -303,13 +303,13 @@ test('Progress tracking current value increments correctly', async () => {
 })
 
 test('Progress tracking total value is maintained correctly', async () => {
-  const progressTask = Progression.create<string, never, {}>(async function*() {
+  const progressTask = Stream.create<string, never, {}>(async function*() {
     yield ok('step1', { total: 3, current: 1 })
     yield ok('step2', { total: 3, current: 2 })
     yield ok('step3', { total: 3, current: 3 })
   })
 
-  const states = await collectResults(progressTask)
+  const states = await collectProgress(progressTask)
   const thirdState = states[2]
 
   expect(thirdState).toBeDefined()
@@ -321,17 +321,17 @@ test('Progress tracking total value is maintained correctly', async () => {
 })
 
 test('Empty progression yields no states', async () => {
-  const emptyTask = Progression.create<string, never, {}>(async function*() {
+  const emptyTask = Stream.create<string, never, {}>(async function*() {
     return
   })
 
-  const emptyStates = await collectResults(emptyTask)
+  const emptyStates = await collectProgress(emptyTask)
 
   expect(emptyStates.length).toBe(0)
 })
 
 test('Error-only progression returns null from runToSuccess', async () => {
-  const onlyErrorTask = Progression.create<string, TestError, {}>(async function*() {
+  const onlyErrorTask = Stream.create<string, TestError, {}>(async function*() {
     yield fail<string, TestError>({ message: 'only error', canRetry: false })
   })
 
@@ -341,25 +341,25 @@ test('Error-only progression returns null from runToSuccess', async () => {
 })
 
 test('Mixed success/error progression yields all states', async () => {
-  const mixedTask = Progression.create<string, TestError, {}>(async function*() {
+  const mixedTask = Stream.create<string, TestError, {}>(async function*() {
     yield ok<string, TestError>('first')
     yield fail<string, TestError>({ message: 'middle error', canRetry: true })
     yield ok<string, TestError>('last')
   })
 
-  const mixedStates = await collectResults(mixedTask)
+  const mixedStates = await collectProgress(mixedTask)
 
   expect(mixedStates.length).toBe(3)
 })
 
 test('Mixed progression preserves error states in sequence', async () => {
-  const mixedTask = Progression.create<string, TestError, {}>(async function*() {
+  const mixedTask = Stream.create<string, TestError, {}>(async function*() {
     yield ok<string, TestError>('first')
     yield fail<string, TestError>({ message: 'middle error', canRetry: true })
     yield ok<string, TestError>('last')
   })
 
-  const mixedStates = await collectResults(mixedTask)
+  const mixedStates = await collectProgress(mixedTask)
   const middleState = mixedStates[1]
 
   expect(middleState).toBeDefined()
@@ -369,9 +369,9 @@ test('Mixed progression preserves error states in sequence', async () => {
 })
 
 test('Complex method chaining produces correct mathematical result', async () => {
-  const chainedTask = Progression.const<number>(10)
+  const chainedTask = Stream.const<number>(10)
   .map(x => x * 2)           // 20
-  .flatMap(x => Progression.const<number>(x + 5))  // 25
+  .flatMap(x => Stream.const<number>(x + 5))  // 25
   .map(x => x / 5)           // 5
 
   const result = await runToSuccess(chainedTask)
@@ -380,10 +380,10 @@ test('Complex method chaining produces correct mathematical result', async () =>
 })
 
 test('Error handling in method chains with recovery', async () => {
-  const errorInChain = Progression.const<number>(10)
+  const errorInChain = Stream.const<number>(10)
   .map(x => x * 2)
-  .flatMap(() => Progression.never<string, TestError>({ message: 'chain error', canRetry: true }))
-  .orElse(() => Progression.const<string>('recovered'))
+  .flatMap(() => Stream.never<string, TestError>({ message: 'chain error', canRetry: true }))
+  .orElse(() => Stream.const<string>('recovered'))
   .map(x => x + ' value')
 
   const errorResult = await runToSuccess(errorInChain)
@@ -396,7 +396,7 @@ test('Progression correctly uses numeric IO context properties', async () => {
     value?: number
   }
 
-  const ioTask = Progression.create<number, never, TestIOBasic>(async function*(io: TestIOBasic) {
+  const ioTask = Stream.create<number, never, TestIOBasic>(async function*(io: TestIOBasic) {
     yield ok((io.value || 0) * 2)
   })
 
@@ -411,7 +411,7 @@ test('Progression works with extended string IO context', async () => {
     testValue?: string
   }
 
-  const extendedIOTask = Progression.create<string, never, TestIO>(async function*(io: TestIO) {
+  const extendedIOTask = Stream.create<string, never, TestIO>(async function*(io: TestIO) {
     yield ok(io.testValue || 'default')
   })
 
@@ -421,7 +421,7 @@ test('Progression works with extended string IO context', async () => {
 })
 
 test('Progression completes normally without cancellation signal', async () => {
-  const cancellableTask = Progression.create<string, TestError, {}>(async function*(_io: {}, signal?: AbortSignal) {
+  const cancellableTask = Stream.create<string, TestError, {}>(async function*(_io: {}, signal?: AbortSignal) {
     yield ok<string, TestError>('started')
 
     // Simulate checking for cancellation
@@ -439,7 +439,7 @@ test('Progression completes normally without cancellation signal', async () => {
 })
 
 test('Progression structure supports AbortSignal parameter', async () => {
-  const cancellableTask = Progression.create<string, TestError, {}>(async function*(_io: {}, signal?: AbortSignal) {
+  const cancellableTask = Stream.create<string, TestError, {}>(async function*(_io: {}, signal?: AbortSignal) {
     yield ok<string, TestError>('started')
 
     if (signal?.aborted) {
@@ -459,7 +459,7 @@ test('Progression can handle pre-aborted signal', async () => {
   const controller = new AbortController()
   controller.abort()
 
-  const cancellableTask = Progression.create<string, TestError, {}>(async function*(_io: {}, signal?: AbortSignal) {
+  const cancellableTask = Stream.create<string, TestError, {}>(async function*(_io: {}, signal?: AbortSignal) {
     yield ok<string, TestError>('started')
 
     if (signal?.aborted) {
@@ -470,7 +470,7 @@ test('Progression can handle pre-aborted signal', async () => {
     yield ok<string, TestError>('completed')
   })
 
-  const states = await collectResults(cancellableTask, {})
+  const states = await collectProgress(cancellableTask, {})
 
   // Should have started but not completed
   expect(states.length).toBeGreaterThan(0)

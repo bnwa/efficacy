@@ -1,25 +1,36 @@
 import type { IO } from '@lib/io'
 
+import type { Failure } from '@lib/result'
+import type { Success } from '@lib/result'
 import { ok as taskOk } from '@lib/result'
 import { fail as taskFail } from '@lib/result'
 
-import type { ProgressResult } from '@lib/prog-result'
-import { ok } from '@lib/prog-result'
-import { fail } from '@lib/prog-result'
-
 import { Task } from '@lib/task'
 
-export type StreamExec<T, E> = AsyncGenerator<ProgressResult<T, E>, void, void >
+export type ProgressState = {
+  total?: number
+  current?: number
+}
+
+export type ProgressOk<T> = Success<T> & { progress?: ProgressState }
+
+export type ProgressFail<E> = Failure<E> & { progress?: ProgressState }
+
+export type Progress<T, E> =
+  | ProgressOk<T>
+  | ProgressFail<E>
+
+export type StreamExec<T, E> = AsyncGenerator<Progress<T, E>, void, void >
 
 export type StreamInit<T, E, TaskIO extends Partial<IO>> =
   (io: TaskIO, signal?: AbortSignal) => StreamExec<T, E>
 
 
-async function collectResults<T, E, TaskIO extends Partial<IO>>(
-  stream: Progression<T, E, TaskIO>,
+async function collectProgress<T, E, TaskIO extends Partial<IO>>(
+  stream: Stream<T, E, TaskIO>,
   io: TaskIO,
   signal?: AbortSignal
-) : Promise<ProgressResult<T, E>[]> {
+) : Promise<Progress<T, E>[]> {
   const results = []
   for await (const result of stream.run(io, signal)) {
     results.push(result)
@@ -27,8 +38,20 @@ async function collectResults<T, E, TaskIO extends Partial<IO>>(
   return results
 }
 
+export function ok<T, E = never>(value: T, progress?: ProgressState) : Progress<T, E> {
+  return { ok: true, value, progress }
+}
 
-export class Progression<T, E, TaskIO extends Partial<IO>> {
+export function fail<T,E>(error: E, progress?: ProgressState) : Progress<T, E> {
+  return { ok: false, error, progress }
+}
+
+export function isFailure<T,E>(result: Progress<T,E>) : result is ProgressFail<E> {
+  return !result.ok
+}
+
+
+export class Stream<T, E, TaskIO extends Partial<IO>> {
   run: StreamInit<T, E, TaskIO>
 
   protected constructor(private init: StreamInit<T,E,TaskIO>) {
@@ -38,24 +61,24 @@ export class Progression<T, E, TaskIO extends Partial<IO>> {
   static create<T, E, TaskIO extends Partial<IO>>(
     init: (io: TaskIO, signal?: AbortSignal) => StreamExec<T, E>
   ) {
-    return new Progression(init)
+    return new Stream(init)
   }
 
-  static const<T, E = never>(value: T): Progression<T, E, {}> {
-    return new Progression(async function*() : StreamExec<T,E> {
+  static const<T, E = never>(value: T): Stream<T, E, {}> {
+    return new Stream(async function*() : StreamExec<T,E> {
       yield ok(value, { total: 1, current: 1 })
     })
   }
 
-  static never<T, E>(value :E) : Progression<T, E, {}> {
-    return new Progression(async function*() : StreamExec<T,E> {
+  static never<T, E>(value :E) : Stream<T, E, {}> {
+    return new Stream(async function*() : StreamExec<T,E> {
       yield fail(value)
     })
   }
 
-  map<U>(fn: (value: T) => U): Progression<U, E, TaskIO> {
+  map<U>(fn: (value: T) => U): Stream<U, E, TaskIO> {
     const prev = this.run
-    return Progression.create(async function*(io: TaskIO, signal?: AbortSignal): StreamExec<U, E> {
+    return Stream.create(async function*(io: TaskIO, signal?: AbortSignal): StreamExec<U, E> {
       for await (const result of prev(io, signal)) {
         if (result.ok) {
           yield ok(fn(result.value), result.progress)
@@ -66,9 +89,9 @@ export class Progression<T, E, TaskIO extends Partial<IO>> {
     })
   }
 
-  mapError<F>(fn: (error: E) => F): Progression<T, F, TaskIO> {
+  mapError<F>(fn: (error: E) => F): Stream<T, F, TaskIO> {
     const prev = this.run
-    return Progression.create(async function*(io: TaskIO, signal?: AbortSignal): StreamExec<T, F> {
+    return Stream.create(async function*(io: TaskIO, signal?: AbortSignal): StreamExec<T, F> {
       for await (const result of prev(io, signal)) {
         if (result.ok) {
           yield result
@@ -80,10 +103,10 @@ export class Progression<T, E, TaskIO extends Partial<IO>> {
   }
 
   flatMap<U, F, NextIO extends TaskIO>(
-    fn: (value: T) => Progression<U, F, NextIO>
-  ): Progression<U, E | F, NextIO> {
+    fn: (value: T) => Stream<U, F, NextIO>
+  ): Stream<U, E | F, NextIO> {
     const prev = this.run
-    return Progression.create(async function*(io: NextIO, signal?: AbortSignal): StreamExec<U, E | F> {
+    return Stream.create(async function*(io: NextIO, signal?: AbortSignal): StreamExec<U, E | F> {
       for await (const result of prev(io, signal)) {
         if (result.ok) {
           const nextTask = fn(result.value)
@@ -95,9 +118,9 @@ export class Progression<T, E, TaskIO extends Partial<IO>> {
     })
   }
 
-  orElseMap(fn: (error: E) => T): Progression<T, never, TaskIO> {
+  orElseMap(fn: (error: E) => T): Stream<T, never, TaskIO> {
     const prev = this.run
-    return Progression.create(async function*(io: TaskIO, signal?: AbortSignal): StreamExec<T, never> {
+    return Stream.create(async function*(io: TaskIO, signal?: AbortSignal): StreamExec<T, never> {
       for await (const state of prev(io, signal)) {
         if (state.ok) {
           yield state
@@ -109,10 +132,10 @@ export class Progression<T, E, TaskIO extends Partial<IO>> {
   }
 
   orElse<F, NextIO extends TaskIO>(
-    fn: (error: E) => Progression<T, F, NextIO>
-  ): Progression<T, F, NextIO> {
+    fn: (error: E) => Stream<T, F, NextIO>
+  ): Stream<T, F, NextIO> {
     const prev = this.run
-    return Progression.create(async function*(io: NextIO, signal?: AbortSignal): StreamExec<T, F> {
+    return Stream.create(async function*(io: NextIO, signal?: AbortSignal): StreamExec<T, F> {
       for await (const state of prev(io, signal)) {
         if (state.ok) {
           yield state
@@ -127,7 +150,7 @@ export class Progression<T, E, TaskIO extends Partial<IO>> {
   toTask() : Task<T, E, TaskIO> {
     const prev = this
     return Task.create<T, E, TaskIO>(async (io, signal) => {
-      const results = await collectResults<T, E, TaskIO>(prev, io, signal)
+      const results = await collectProgress<T, E, TaskIO>(prev, io, signal)
       const tail = results[results.length - 1]
       if (results.length === 0 || !tail) {
         throw new Error(`Progression yielded no results`)
