@@ -1,22 +1,16 @@
 {
   "name": "task",
   "module": "index.ts",
-  "scripts": {
-    "repl": "tsx",
-    "test": "bun run --bun tape src/**/*.spec.ts"
-  },
-  "dependencies": {
-    "@sigma/rust-base64": "npm:@jsr/sigma__rust-base64"
+  "devDependencies": {
+    "@biomejs/biome": "2.2.2",
+    "tsx": "^4.20.5"
   },
   "peerDependencies": {
     "typescript": "^5"
   },
   "private": true,
   "type": "module",
-  "devDependencies": {
-    "@biomejs/biome": "2.2.2",
-    "@types/tape": "^5.8.1",
-    "tape": "^5.9.0",
-    "tsx": "^4.20.5"
+  "dependencies": {
+    "@types/bun": "^1.2.21"
   }
 }
