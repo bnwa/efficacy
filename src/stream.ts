@@ -1,11 +1,11 @@
-import type { IO } from '@lib/io'
+import type { IO } from './io.js'
 
-import type { Failure } from '@lib/result'
-import type { Success } from '@lib/result'
-import { ok as taskOk } from '@lib/result'
-import { fail as taskFail } from '@lib/result'
+import type { Failure } from './result.js'
+import type { Success } from './result.js'
+import { ok as taskOk } from './result.js'
+import { fail as taskFail } from './result.js'
 
-import { Task } from '@lib/task'
+import { Task } from './task.js'
 
 
 export type ProgressState = {
@@ -98,7 +98,7 @@ export class Stream<T, E, TaskIO extends Partial<IO>> {
    */
   static create<T, E, TaskIO extends Partial<IO>>(
     init: (io: TaskIO, signal?: AbortSignal) => StreamExec<T, E>
-  ) {
+  ) : Stream<T, E, TaskIO> {
     return new Stream(init)
   }
 

@@ -1,14 +1,34 @@
 {
   "name": "efficacy",
-  "module": "index.ts",
+  "description": "Functional types for validation and async operations with typed IO dependencies",
+  "keywords": [
+    "TypeScript",
+    "functional programming",
+    "applicative validation",
+    "monadic",
+    "async",
+    "result",
+    "task",
+    "stream",
+    "io",
+    "validation"
+  ],
+  "license": "MIT",
+  "version": "0.1.0",
+  "maintainers": [
+    "Benoit Barberousse <74591246+bnwa@users.noreply.github.com>"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bnwa/efficacy"
+  },
+  "type": "module",
   "devDependencies": {
     "tsx": "^4.20.5"
   },
   "peerDependencies": {
     "typescript": "^5"
   },
-  "private": true,
-  "type": "module",
   "dependencies": {
     "@types/bun": "^1.2.21"
   }

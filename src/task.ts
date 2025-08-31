@@ -1,14 +1,14 @@
-import type { IO } from '@lib/io'
+import type { IO } from './io.js'
 
-import { Stream } from '@lib/stream'
-import { ok as progOk } from '@lib/stream'
-import { fail as progFail } from '@lib/stream'
+import { Stream } from './stream.js'
+import { ok as progOk } from './stream.js'
+import { fail as progFail } from './stream.js'
 
-import type { Failure } from '@lib/result'
-import type { Result } from '@lib/result'
-import { ok } from '@lib/result'
-import { fail } from '@lib/result'
-import { isFailure } from '@lib/result'
+import type { Failure } from './result.js'
+import type { Result } from './result.js'
+import { ok } from './result.js'
+import { fail } from './result.js'
+import { isFailure } from './result.js'
 
 
 type TaskInit<T, E, TaskIO extends Partial<IO>> =
@@ -31,7 +31,7 @@ export class Task<T, E, TaskIO extends Partial<IO>> {
    * })
    * ```
    */
-  static create<T, E, TaskIO extends Partial<IO>>(init: TaskInit<T, E, TaskIO>) {
+  static create<T, E, TaskIO extends Partial<IO>>(init: TaskInit<T, E, TaskIO>) : Task<T, E, TaskIO> {
     return new Task(init)
   }
 

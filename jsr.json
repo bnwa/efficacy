@@ -1,0 +1,20 @@
+{
+  "name": "@bnwa/efficacy",
+  "version": "0.1.0",
+  "license": "MIT",
+  "exports": {
+    ".": "./index.ts",
+    "./assert": "./src/assert.ts",
+    "./result": "./src/result.ts",
+    "./io": "./src/io.ts",
+    "./task": "./src/task.ts",
+    "./stream": "./src/stream.ts"
+  },
+  "publish": {
+    "exclude": [
+      "*.spec.ts",
+      "*.test.ts",
+      "tsconfig.json"
+    ]
+  }
+}

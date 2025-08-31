@@ -1,5 +1,6 @@
 # Efficacy
-Monadic Types for Async Operations with Typed IO Dependencies
+Lil Bit Opinionated Monadic Types for Async Operations with
+Typed IO Dependencies
 
 ## Core Concepts
 
@@ -12,8 +13,10 @@ The `Task<T, E, TaskIO>` type represents an asynchronous computation that:
 - Returns a single `Result<T, E>` when executed
 
 ```typescript
-import { Task } from './src/task'
-import { ok, fail } from './src/result'
+import { Task, ok, fail } from 'efficacy'
+// or import from individual modules
+// import { Task } from 'efficacy/task'
+// import { ok, fail } from 'efficacy/result'
 
 // Simple task that always succeeds
 const simpleTask: Task<string, never, {}> = Task.of('Hello World')
@@ -46,12 +49,14 @@ The `Stream<T, E, TaskIO>` type represents an asynchronous operation that yields
 - Includes optional progress tracking with `{ current, total }` information
 
 ```typescript
-import { Stream, ok, fail } from './src/stream'
+import { Stream, progressOk, progressFail } from 'efficacy'
+// or import from individual modules
+// import { Stream, ok as progressOk, fail as progressFail } from 'efficacy/stream'
 
 const progressStream: Stream<string, never, {}> = Stream.create(async function*() {
-  yield ok('step 1', { total: 3, current: 1 })
-  yield ok('step 2', { total: 3, current: 2 })
-  yield ok('step 3', { total: 3, current: 3 })
+  yield progressOk('step 1', { total: 3, current: 1 })
+  yield progressOk('step 2', { total: 3, current: 2 })
+  yield progressOk('step 3', { total: 3, current: 3 })
 })
 
 // Consume progress updates
@@ -102,7 +107,9 @@ The `Assert<T>` type represents a validation result that can either contain a va
 ### Basic Usage
 
 ```typescript
-import { valid, invalid, isValid, assert } from './src/assert'
+import { valid, invalid, isValid, assert } from 'efficacy'
+// or import from individual modules
+// import { valid, invalid, isValid, assert } from 'efficacy/assert'
 
 // Create valid and invalid results
 const validAge = valid(25)
@@ -127,7 +134,7 @@ try {
 Build rich validation errors with path, code, and context information:
 
 ```typescript
-import { withPath, withCode, withContext, invalid } from './src/assert'
+import { withPath, withCode, withContext, invalid } from 'efficacy'
 
 const validationError = withPath(['user', 'profile', 'email'],
   withCode('INVALID_EMAIL',
@@ -153,7 +160,7 @@ if (!isValid(validationError)) {
 Transform and compose validations using monadic operations:
 
 ```typescript
-import { map, apply, lift, sequence, traverse } from './src/assert'
+import { map, apply, lift, sequence, traverse } from 'efficacy'
 
 // Transform valid values
 const doubled = map(valid(21), x => x * 2)
@@ -185,7 +192,7 @@ console.log(assert(parsed)) // [1, 2, 3]
 The library accumulates validation errors rather than failing on the first error:
 
 ```typescript
-import { fold } from './src/assert'
+import { fold } from 'efficacy'
 
 // Fold over validated results
 const sum = (a: number, b: number) => a + b
@@ -203,7 +210,7 @@ try {
 The Assert type follows applicative functor laws, making it mathematically sound for composition:
 
 ```typescript
-import { apply } from './src/assert'
+import { apply } from 'efficacy'
 
 // Identity law: apply(valid(identity), v) === v
 const identity = <T>(x: T): T => x
@@ -228,7 +235,9 @@ Use the `defineIO` helper function to create your IO operations:
 
 ```typescript
 // In your application code
-import { defineIO } from './src/io'
+import { defineIO } from 'efficacy'
+// or import from individual module
+// import { defineIO } from 'efficacy/io'
 
 // Define your IO operations - types are automatically preserved
 export const myIO = defineIO({
@@ -282,8 +291,7 @@ const serviceBIO = defineIO({
 Tasks specify exactly which IO operations they need using `Pick`:
 
 ```typescript
-import { Task } from './src/task'
-import { ok, fail } from './src/result'
+import { Task, ok, fail } from 'efficacy'
 
 type UserData = { id: string; name: string; email: string }
 type AppError = { message: string; code: number }
@@ -317,27 +325,27 @@ const result = await processUser('123').run(myIO)
 Streams work the same way for progress-reporting operations:
 
 ```typescript
-import { Stream, ok, fail } from './src/stream'
+import { Stream, progressOk, progressFail } from 'efficacy'
 
 const processUserWithProgress = (userId: string): Stream<UserData, AppError, Pick<typeof myIO, 'queryDB' | 'sendEmail'>> => {
   return Stream.create(async function*(io, signal) {
     try {
-      yield ok('Starting...', { total: 3, current: 1 })
+      yield progressOk('Starting...', { total: 3, current: 1 })
 
       const users = await io.queryDB<UserData>('SELECT * FROM users WHERE id = ?', [userId])
       if (users.length === 0) {
-        yield fail({ message: 'User not found', code: 404 })
+        yield progressFail({ message: 'User not found', code: 404 })
         return
       }
 
       const user = users[0]
-      yield ok(user, { total: 3, current: 2 })
+      yield progressOk(user, { total: 3, current: 2 })
 
       await io.sendEmail(user.email, 'Welcome!', 'Thanks for joining!')
-      yield ok(user, { total: 3, current: 3 })
+      yield progressOk(user, { total: 3, current: 3 })
 
     } catch (error) {
-      yield fail({ message: error.message, code: 500 })
+      yield progressFail({ message: error.message, code: 500 })
     }
   })
 }
@@ -388,7 +396,7 @@ const stringErrors = riskyTask.mapError(err =>
 Streams are designed for operations that need to report progress:
 
 ```typescript
-import { Stream, ok, fail } from './src/stream'
+import { Stream, progressOk, progressFail } from 'efficacy'
 
 const longRunningOperation = Stream.create(async function*() {
   const total = 100
@@ -399,11 +407,11 @@ const longRunningOperation = Stream.create(async function*() {
 
     if (i === 50 && Math.random() > 0.8) {
       // Occasional failure
-      yield fail('Midway error occurred', { total, current: i })
+      yield progressFail('Midway error occurred', { total, current: i })
       return
     }
 
-    yield ok(`Completed step ${i}`, { total, current: i })
+    yield progressOk(`Completed step ${i}`, { total, current: i })
   }
 })
 
@@ -458,6 +466,41 @@ setTimeout(() => controller.abort(), 1000)
 
 const result = await cancellableTask.run({}, controller.signal)
 ```
+
+## Installation
+
+### Using JSR (Recommended)
+
+````bash
+# Install via JSR CLI
+npx jsr add @your-username/efficacy
+
+# Or using JSR with npm
+npm install @jsr/your-username__efficacy
+
+# Or using JSR with yarn
+yarn add @jsr/your-username__efficacy
+
+# Or using JSR with pnpm
+pnpm add @jsr/your-username__efficacy
+
+# Or using JSR with bun
+bunx jsr add @your-username/efficacy
+````
+
+### Import Usage
+
+````typescript
+// Main entry point - all exports
+import { Task, Stream, valid, invalid, ok, fail, defineIO } from '@your-username/efficacy'
+
+// Individual modules
+import { Task } from '@your-username/efficacy/task'
+import { Stream } from '@your-username/efficacy/stream'
+import { valid, invalid } from '@your-username/efficacy/assert'
+import { ok, fail } from '@your-username/efficacy/result'
+import { defineIO } from '@your-username/efficacy/io'
+````
 
 ## Development
 
