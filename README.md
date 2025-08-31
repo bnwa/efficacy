@@ -95,6 +95,129 @@ const stream2 = Stream.const('world')
 const task2 = stream2.toTask()
 ```
 
+## Assert Type - Functional Validation
+
+The `Assert<T>` type represents a validation result that can either contain a valid value or validation errors. It provides a functional approach to data validation with composable error handling.
+
+### Basic Usage
+
+```typescript
+import { valid, invalid, isValid, assert } from './src/assert'
+
+// Create valid and invalid results
+const validAge = valid(25)
+const invalidEmail = invalid("Invalid email format")
+
+// Type-safe checking
+if (isValid(validAge)) {
+  console.log(validAge.value) // 25
+}
+
+// Extract values or throw errors
+try {
+  const age = assert(validAge) // 25
+  const email = assert(invalidEmail) // throws Error
+} catch (error) {
+  console.log(error.message) // "Invalid email format"
+}
+```
+
+### Validation with Context
+
+Build rich validation errors with path, code, and context information:
+
+```typescript
+import { withPath, withCode, withContext, invalid } from './src/assert'
+
+const validationError = withPath(['user', 'profile', 'email'],
+  withCode('INVALID_EMAIL',
+    withContext(
+      { received: 'not-an-email', expected: 'email format' },
+      invalid("Invalid email address")
+    )
+  )
+)
+
+// Error contains: path, code, context, and message
+if (!isValid(validationError)) {
+  const error = validationError.error[0]
+  console.log(error?.path)     // ['user', 'profile', 'email']
+  console.log(error?.code)     // 'INVALID_EMAIL'
+  console.log(error?.context)  // { received: 'not-an-email', expected: 'email format' }
+  console.log(error?.message)  // 'Invalid email address'
+}
+```
+
+### Monadic Operations
+
+Transform and compose validations using monadic operations:
+
+```typescript
+import { map, apply, lift, sequence, traverse } from './src/assert'
+
+// Transform valid values
+const doubled = map(valid(21), x => x * 2)
+console.log(assert(doubled)) // 42
+
+// Apply functions to validated arguments
+const add = (a: number, b: number) => a + b
+const result = lift(add, valid(5), valid(3))
+console.log(assert(result)) // 8
+
+// Sequence multiple validations
+const numbers = [valid(1), valid(2), valid(3)]
+const allNumbers = sequence(numbers)
+console.log(assert(allNumbers)) // [1, 2, 3]
+
+// Transform and validate arrays
+const parseNumber = (x: string) => {
+  const parsed = parseInt(x, 10)
+  return isNaN(parsed) ? invalid("Not a number") : valid(parsed)
+}
+
+const strings = ['1', '2', '3']
+const parsed = traverse(strings, parseNumber)
+console.log(assert(parsed)) // [1, 2, 3]
+```
+
+### Validation Error Accumulation
+
+The library accumulates validation errors rather than failing on the first error:
+
+```typescript
+import { fold } from './src/assert'
+
+// Fold over validated results
+const sum = (a: number, b: number) => a + b
+const results = [valid(1), invalid("Error 1"), valid(3), invalid("Error 2")]
+
+try {
+  assert(fold(results, valid(0), sum))
+} catch (error) {
+  console.log(error.message) // Contains all accumulated errors
+}
+```
+
+### Applicative Laws
+
+The Assert type follows applicative functor laws, making it mathematically sound for composition:
+
+```typescript
+import { apply } from './src/assert'
+
+// Identity law: apply(valid(identity), v) === v
+const identity = <T>(x: T): T => x
+const value = valid(42)
+const applied = apply(valid(identity), value)
+console.log(assert(applied) === assert(value)) // true
+
+// Homomorphism law: apply(valid(f), valid(x)) === valid(f(x))
+const double = (x: number) => x * 2
+const left = apply(valid(double), valid(5))
+const right = valid(double(5))
+console.log(assert(left) === assert(right)) // true
+```
+
 ## IO Interface
 
 The library uses a `defineIO` helper function to create fully type-safe IO operations. Each consumer defines their own isolated IO interface, avoiding global pollution and enabling perfect TypeScript inference.
@@ -308,6 +431,10 @@ for await (const progress of longRunningOperation.run({})) {
 - `Stream.never(error)` - Create a stream that yields one failure
 - `Stream.create(init)` - Create a custom stream with a generator function
 
+### Assert Static Functions
+- `valid(value)` - Create a valid assertion result containing the given value
+- `invalid(message)` - Create an invalid assertion result with a validation error
+
 ## Cancellation Support
 
 Both Task and Stream support cancellation via AbortSignal:
@@ -352,6 +479,10 @@ bun test        # Run test suite
 - **`Stream<T, E, TaskIO>`** - Represents a long-running asynchronous operation that can emit multiple progress updates before completing. Each update can be either a success or failure state, making it ideal for operations like file uploads, data processing, or multi-step workflows.
 
 - **`Progress<T, E>`** - A progress update emitted by streams, containing the same success/failure information as `Result` but with additional optional progress metadata (`current` and `total` counts).
+
+- **`Assert<T>`** - A discriminated union representing either a valid value of type `T` or validation errors. Provides functional composition for validation logic with rich error information including path, code, and context.
+
+- **`ValidationError`** - A structured error type containing message, optional path array, error code, and context information. Enables precise error reporting and debugging in validation pipelines.
 
 - **`IO`** - A type-safe interface specification for external dependencies (file system, database, HTTP, etc.). This enables dependency injection and makes your code testable by allowing mock implementations.
 
@@ -402,3 +533,31 @@ bun test        # Run test suite
 - **`.toTask()`** - Converts the stream to a task by collecting all progress updates and returning the final result. Useful when you only care about the end result of a streaming operation.
 
 - **`.run(io, signal?)`** - Executes the stream with the provided IO dependencies. Returns an AsyncGenerator that yields progress updates. Use `for await...of` to consume the updates.
+
+### Assert Functions
+
+- **`valid<T>(value: T)`** - Creates a valid assertion result containing the given value. This represents successful validation and allows the value to flow through validation pipelines.
+
+- **`invalid(message: string)`** - Creates an invalid assertion result with a validation error message. This represents validation failure and stops the validation pipeline with error information.
+
+- **`isValid<T>(assert: Assert<T>)`** - Type guard function that checks if an assertion result is valid. Returns true for valid results and narrows the TypeScript type to provide safe access to the value.
+
+- **`assert<T>(assert: Assert<T>, formatter?)`** - Extracts the value from a valid assertion or throws an error for invalid ones. Optional formatter function allows custom error message formatting.
+
+- **`map<A, B>(assert: Assert<A>, fn: (value: A) => B)`** - Transforms valid values using a function, leaving invalid results unchanged. This is the fundamental building block for validation pipelines.
+
+- **`apply<A, B>(fn: Assert<(a: A) => B>, arg: Assert<A>)`** - Applies a validated function to a validated argument. Both must be valid for the operation to succeed, making this useful for multi-argument validation.
+
+- **`lift<T[], R>(fn: (...args: T) => R, ...assertions: Assert<T>[])`** - Lifts a pure function to work with multiple validated arguments. All arguments must be valid for the function to execute.
+
+- **`sequence<T>(assertions: Assert<T>[])`** - Converts an array of assertions into an assertion of an array. All individual assertions must be valid for the sequence to succeed.
+
+- **`traverse<A, B>(items: A[], fn: (item: A) => Assert<B>)`** - Maps each item through a validation function, then sequences the results. Combines mapping and sequencing in one operation.
+
+- **`fold<A, B>(assertions: Assert<A>[], initial: Assert<B>, fn: (acc: B, value: A) => B)`** - Reduces an array of assertions using an accumulator function. Stops on the first invalid assertion and returns its error.
+
+- **`withPath<T>(path: string[], assert: Assert<T>)`** - Adds path information to validation errors, useful for tracking which field or property failed validation in complex data structures.
+
+- **`withCode<T>(code: string, assert: Assert<T>)`** - Adds an error code to validation errors, enabling programmatic error handling and internationalization of error messages.
+
+- **`withContext<T>(context: object, assert: Assert<T>)`** - Adds contextual information to validation errors, such as expected vs received values or validation constraints that were violated.
