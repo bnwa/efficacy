@@ -39,14 +39,40 @@ async function collectProgress<T, E, TaskIO extends Partial<IO>>(
   return results
 }
 
+/**
+ * Creates a successful progress result with optional progress information.
+ *
+ * ```typescript
+ * const progress = ok("completed", { total: 10, current: 5 })
+ * console.log(progress) // { ok: true, value: "completed", progress: { total: 10, current: 5 } }
+ * ```
+ */
 export function ok<T, E = never>(value: T, progress?: ProgressState) : Progress<T, E> {
   return { ok: true, value, progress }
 }
 
+/**
+ * Creates a failed progress result with optional progress information.
+ *
+ * ```typescript
+ * const progress = fail("network error", { total: 10, current: 3 })
+ * console.log(progress) // { ok: false, error: "network error", progress: { total: 10, current: 3 } }
+ * ```
+ */
 export function fail<T, E>(error: E, progress?: ProgressState) : Progress<T, E> {
   return { ok: false, error, progress }
 }
 
+/**
+ * Type guard to check if a progress result represents a failure.
+ *
+ * ```typescript
+ * const progress = fail("error")
+ * if (isFailure(progress)) {
+ *   console.log(progress.error) // "error"
+ * }
+ * ```
+ */
 export function isFailure<T, E>(result: Progress<T, E>) : result is ProgressFail<E> {
   return !result.ok
 }
@@ -59,24 +85,63 @@ export class Stream<T, E, TaskIO extends Partial<IO>> {
     this.run = this.init.bind(this)
   }
 
+  /**
+   * Creates a stream from an async generator function.
+   *
+   * ```typescript
+   * const stream = Stream.create(async function*() {
+   *   yield ok("step 1", { total: 3, current: 1 })
+   *   yield ok("step 2", { total: 3, current: 2 })
+   *   yield ok("step 3", { total: 3, current: 3 })
+   * })
+   * ```
+   */
   static create<T, E, TaskIO extends Partial<IO>>(
     init: (io: TaskIO, signal?: AbortSignal) => StreamExec<T, E>
   ) {
     return new Stream(init)
   }
 
+  /**
+   * Creates a stream that yields a single successful value.
+   *
+   * ```typescript
+   * const stream = Stream.const(42)
+   * for await (const progress of stream.run({})) {
+   *   console.log(progress) // { ok: true, value: 42, progress: { total: 1, current: 1 } }
+   * }
+   * ```
+   */
   static const<T, E = never>(value: T): Stream<T, E, {}> {
     return new Stream(async function*() : StreamExec<T, E> {
       yield ok(value, { total: 1, current: 1 })
     })
   }
 
+  /**
+   * Creates a stream that yields a single error value.
+   *
+   * ```typescript
+   * const stream = Stream.never("error")
+   * for await (const progress of stream.run({})) {
+   *   console.log(progress) // { ok: false, error: "error" }
+   * }
+   * ```
+   */
   static never<T, E>(value :E) : Stream<T, E, {}> {
     return new Stream(async function*() : StreamExec<T, E> {
       yield fail(value)
     })
   }
 
+  /**
+   * Transforms successful values using the provided function.
+   *
+   * ```typescript
+   * const stream = Stream.const(5).map(x => x * 2)
+   * const result = await runToSuccess(stream) // 10
+   * ```
+   */
   map<U>(fn: (value: T) => U): Stream<U, E, TaskIO> {
     const prev = this.run
     return Stream.create(async function*(io: TaskIO, signal?: AbortSignal): StreamExec<U, E> {
@@ -90,6 +155,13 @@ export class Stream<T, E, TaskIO extends Partial<IO>> {
     })
   }
 
+  /**
+   * Transforms error values using the provided function.
+   *
+   * ```typescript
+   * const stream = Stream.never("error").mapError(err => `Handled: ${err}`)
+   * ```
+   */
   mapError<F>(fn: (error: E) => F): Stream<T, F, TaskIO> {
     const prev = this.run
     return Stream.create(async function*(io: TaskIO, signal?: AbortSignal): StreamExec<T, F> {
@@ -103,6 +175,14 @@ export class Stream<T, E, TaskIO extends Partial<IO>> {
     })
   }
 
+  /**
+   * Chains streams together, flattening the results.
+   *
+   * ```typescript
+   * const stream = Stream.const(5).flatMap(x => Stream.const(x * 2))
+   * const result = await runToSuccess(stream) // 10
+   * ```
+   */
   flatMap<U, F, NextIO extends TaskIO>(
     fn: (value: T) => Stream<U, F, NextIO>
   ) : Stream<U, E | F, NextIO> {
@@ -119,6 +199,14 @@ export class Stream<T, E, TaskIO extends Partial<IO>> {
     })
   }
 
+  /**
+   * Converts errors to successful values using the provided function.
+   *
+   * ```typescript
+   * const stream = Stream.never("error").orElseMap(err => `default`)
+   * const result = await runToSuccess(stream) // "default"
+   * ```
+   */
   orElseMap(fn: (error: E) => T): Stream<T, never, TaskIO> {
     const prev = this.run
     return Stream.create(async function*(io: TaskIO, signal?: AbortSignal): StreamExec<T, never> {
@@ -132,6 +220,14 @@ export class Stream<T, E, TaskIO extends Partial<IO>> {
     })
   }
 
+  /**
+   * Provides error recovery by chaining to another stream on failure.
+   *
+   * ```typescript
+   * const stream = Stream.never("error").orElse(err => Stream.const("recovered"))
+   * const result = await runToSuccess(stream) // "recovered"
+   * ```
+   */
   orElse<F, NextIO extends TaskIO>(
     fn: (error: E) => Stream<T, F, NextIO>
   ) : Stream<T, F, NextIO> {
@@ -148,6 +244,15 @@ export class Stream<T, E, TaskIO extends Partial<IO>> {
     })
   }
 
+  /**
+   * Converts the stream to a Task by collecting all progress and returning the final result.
+   *
+   * ```typescript
+   * const stream = Stream.const(42)
+   * const task = stream.toTask()
+   * const result = await task.run({}) // { ok: true, value: 42 }
+   * ```
+   */
   toTask() : Task<T, E, TaskIO> {
     const prev = this
     return Task.create<T, E, TaskIO>(async (io, signal) => {

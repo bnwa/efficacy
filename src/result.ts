@@ -6,14 +6,40 @@ export type Result<T, E> =
   | Failure<E>
 
 
+/**
+ * Creates a successful result containing the given value.
+ *
+ * ```typescript
+ * const result = ok(42)
+ * console.log(result) // { ok: true, value: 42 }
+ * ```
+ */
 export function ok<T, E = never>(value: T) : Result<T, E> {
   return { ok: true, value }
 }
 
+/**
+ * Creates a failed result containing the given error.
+ *
+ * ```typescript
+ * const result = fail({ message: "Not found", code: 404 })
+ * console.log(result) // { ok: false, error: { message: "Not found", code: 404 } }
+ * ```
+ */
 export function fail<T, E>(error: E) : Result<T, E> {
   return { ok: false, error }
 }
 
+/**
+ * Type guard to check if a result represents a failure.
+ *
+ * ```typescript
+ * const result = fail("error")
+ * if (isFailure(result)) {
+ *   console.log(result.error) // "error"
+ * }
+ * ```
+ */
 export function isFailure<T, E>(result: Result<T, E>) : result is Failure<E> {
   return !result.ok
 }
