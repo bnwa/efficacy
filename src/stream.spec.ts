@@ -1,5 +1,6 @@
 import { test, expect } from "bun:test"
 
+import { defineIO } from '@lib/io'
 import type { IO } from '@lib/io'
 
 import type { Progress } from '@lib/stream'
@@ -8,7 +9,6 @@ import { ok } from '@lib/stream'
 import { fail } from '@lib/stream'
 
 
-// Custom error types for testing
 type TestError = {
   message: string
   canRetry: boolean
@@ -19,7 +19,7 @@ type NetworkError = {
   reason: string
 }
 
-// TypeScript assertion functions for type narrowing
+
 function assertIsSuccess<T, E>(result: Progress<T, E>): asserts result is Progress<T, E> & { ok: true } {
   expect(result.ok).toBe(true)
 }
@@ -32,7 +32,9 @@ function assertHasProgress<T, E>(result: Progress<T, E>): asserts result is Prog
   expect(result.progress).toBeDefined()
 }
 
-async function collectProgress<T, E>(task: Stream<T, E, {}>, io = {}): Promise<Array<Progress<T, E>>> {
+async function collectProgress<T, E>(task: Stream<T, E, {}>, io?: {}): Promise<Array<Progress<T, E>>>
+async function collectProgress<T, E, TaskIO extends Partial<IO>>(task: Stream<T, E, TaskIO>, io: TaskIO): Promise<Array<Progress<T, E>>>
+async function collectProgress<T, E, TaskIO extends Partial<IO>>(task: Stream<T, E, TaskIO>, io: TaskIO = {} as TaskIO): Promise<Array<Progress<T, E>>> {
   const states: Array<Progress<T, E>> = []
   for await (const state of task.run(io)) {
     states.push(state)
@@ -40,17 +42,20 @@ async function collectProgress<T, E>(task: Stream<T, E, {}>, io = {}): Promise<A
   return states
 }
 
-async function runToSuccess<T, E>(task: Stream<T, E, {}>, io = {}): Promise<T | null> {
+async function runToSuccess<T, E>(task: Stream<T, E, {}>, io?: {}): Promise<T | null>
+async function runToSuccess<T, E, TaskIO extends Partial<IO>>(task: Stream<T, E, TaskIO>, io: TaskIO): Promise<T | null>
+async function runToSuccess<T, E, TaskIO extends Partial<IO>>(task: Stream<T, E, TaskIO>, io: TaskIO = {} as TaskIO): Promise<T | null> {
   let lastValue = null
   for await (const state of task.run(io)) {
     if (state.ok) {
       lastValue = state.value
     } else {
-      return null // Task failed
+      return null
     }
   }
   return lastValue
 }
+
 
 test('Functor identity law: task.map(x => x) ≡ task', async () => {
   const task = Stream.const<number>(42)
@@ -84,7 +89,7 @@ test('Functor composition produces expected mathematical result', async () => {
   const composed = task.map(f).map(g)
   const result = await runToSuccess(composed)
 
-  expect(result).toBe(11) // (5 * 2) + 1 = 11
+  expect(result).toBe(11)
 })
 
 test('Map preserves errors unchanged', async () => {
@@ -176,7 +181,7 @@ test('Monad associativity produces expected mathematical result', async () => {
   const assoc = task.flatMap(f).flatMap(g)
   const result = await runToSuccess(assoc)
 
-  expect(result).toBe(11) // (5 * 2) + 1 = 11
+  expect(result).toBe(11)
 })
 
 test('MapError transforms error type correctly', async () => {
@@ -370,9 +375,9 @@ test('Mixed progression preserves error states in sequence', async () => {
 
 test('Complex method chaining produces correct mathematical result', async () => {
   const chainedTask = Stream.const<number>(10)
-  .map(x => x * 2)           // 20
-  .flatMap(x => Stream.const<number>(x + 5))  // 25
-  .map(x => x / 5)           // 5
+  .map(x => x * 2)
+  .flatMap(x => Stream.const<number>(x + 5))
+  .map(x => x / 5)
 
   const result = await runToSuccess(chainedTask)
 
@@ -392,30 +397,35 @@ test('Error handling in method chains with recovery', async () => {
 })
 
 test('Progression correctly uses numeric IO context properties', async () => {
-  interface TestIOBasic extends Partial<IO> {
-    value?: number
-  }
-
-  const ioTask = Stream.create<number, never, TestIOBasic>(async function*(io: TestIOBasic) {
-    yield ok((io.value || 0) * 2)
+  const testIO = defineIO({
+    async getValue(): Promise<number> {
+      return 21
+    }
   })
 
-  const ioContext: TestIOBasic = { value: 21 }
-  const ioResult = await runToSuccess(ioTask, ioContext)
+  const ioTask = Stream.create<number, never, Pick<typeof testIO, 'getValue'>>(async function*(io) {
+    const value = await io.getValue()
+    yield ok(value * 2)
+  })
+
+  const ioResult = await runToSuccess(ioTask, testIO)
 
   expect(ioResult).toBe(42)
 })
 
 test('Progression works with extended string IO context', async () => {
-  interface TestIO extends Partial<IO> {
-    testValue?: string
-  }
-
-  const extendedIOTask = Stream.create<string, never, TestIO>(async function*(io: TestIO) {
-    yield ok(io.testValue || 'default')
+  const testIO = defineIO({
+    async getTestValue(): Promise<string> {
+      return 'custom'
+    }
   })
 
-  const extendedResult = await runToSuccess(extendedIOTask, { testValue: 'custom' })
+  const extendedIOTask = Stream.create<string, never, Pick<typeof testIO, 'getTestValue'>>(async function*(io) {
+    const value = await io.getTestValue()
+    yield ok(value)
+  })
+
+  const extendedResult = await runToSuccess(extendedIOTask, testIO)
 
   expect(extendedResult).toBe('custom')
 })
@@ -424,7 +434,6 @@ test('Progression completes normally without cancellation signal', async () => {
   const cancellableTask = Stream.create<string, TestError, {}>(async function*(_io: {}, signal?: AbortSignal) {
     yield ok<string, TestError>('started')
 
-    // Simulate checking for cancellation
     if (signal?.aborted) {
       yield fail<string, TestError>({ message: 'Task was cancelled', canRetry: false })
       return
@@ -450,7 +459,6 @@ test('Progression structure supports AbortSignal parameter', async () => {
     yield ok<string, TestError>('completed')
   })
 
-  // Verify the task can be created and has the expected structure
   expect(cancellableTask).toBeDefined()
   expect(typeof cancellableTask.run).toBe('function')
 })
@@ -472,13 +480,10 @@ test('Progression can handle pre-aborted signal', async () => {
 
   const states = await collectProgress(cancellableTask, {})
 
-  // Should have started but not completed
   expect(states.length).toBeGreaterThan(0)
   const lastState = states[states.length - 1]
   expect(lastState).toBeDefined()
   if (lastState) {
-    // The task should have yielded 'started' first, so we can't assert it's a failure
-    // This test mainly verifies the structure works with AbortSignal
     expect(lastState).toBeDefined()
   }
 })

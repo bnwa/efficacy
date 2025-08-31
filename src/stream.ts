@@ -7,6 +7,7 @@ import { fail as taskFail } from '@lib/result'
 
 import { Task } from '@lib/task'
 
+
 export type ProgressState = {
   total?: number
   current?: number
@@ -42,11 +43,11 @@ export function ok<T, E = never>(value: T, progress?: ProgressState) : Progress<
   return { ok: true, value, progress }
 }
 
-export function fail<T,E>(error: E, progress?: ProgressState) : Progress<T, E> {
+export function fail<T, E>(error: E, progress?: ProgressState) : Progress<T, E> {
   return { ok: false, error, progress }
 }
 
-export function isFailure<T,E>(result: Progress<T,E>) : result is ProgressFail<E> {
+export function isFailure<T, E>(result: Progress<T, E>) : result is ProgressFail<E> {
   return !result.ok
 }
 
@@ -54,7 +55,7 @@ export function isFailure<T,E>(result: Progress<T,E>) : result is ProgressFail<E
 export class Stream<T, E, TaskIO extends Partial<IO>> {
   run: StreamInit<T, E, TaskIO>
 
-  protected constructor(private init: StreamInit<T,E,TaskIO>) {
+  protected constructor(private init: StreamInit<T, E, TaskIO>) {
     this.run = this.init.bind(this)
   }
 
@@ -65,13 +66,13 @@ export class Stream<T, E, TaskIO extends Partial<IO>> {
   }
 
   static const<T, E = never>(value: T): Stream<T, E, {}> {
-    return new Stream(async function*() : StreamExec<T,E> {
+    return new Stream(async function*() : StreamExec<T, E> {
       yield ok(value, { total: 1, current: 1 })
     })
   }
 
   static never<T, E>(value :E) : Stream<T, E, {}> {
-    return new Stream(async function*() : StreamExec<T,E> {
+    return new Stream(async function*() : StreamExec<T, E> {
       yield fail(value)
     })
   }
@@ -104,7 +105,7 @@ export class Stream<T, E, TaskIO extends Partial<IO>> {
 
   flatMap<U, F, NextIO extends TaskIO>(
     fn: (value: T) => Stream<U, F, NextIO>
-  ): Stream<U, E | F, NextIO> {
+  ) : Stream<U, E | F, NextIO> {
     const prev = this.run
     return Stream.create(async function*(io: NextIO, signal?: AbortSignal): StreamExec<U, E | F> {
       for await (const result of prev(io, signal)) {
@@ -133,7 +134,7 @@ export class Stream<T, E, TaskIO extends Partial<IO>> {
 
   orElse<F, NextIO extends TaskIO>(
     fn: (error: E) => Stream<T, F, NextIO>
-  ): Stream<T, F, NextIO> {
+  ) : Stream<T, F, NextIO> {
     const prev = this.run
     return Stream.create(async function*(io: NextIO, signal?: AbortSignal): StreamExec<T, F> {
       for await (const state of prev(io, signal)) {

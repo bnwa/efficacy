@@ -1,11 +1,12 @@
 import { test, expect } from "bun:test"
 
+import { defineIO } from '@lib/io'
 import type { IO } from '@lib/io'
 
 import type { Result } from '@lib/result'
 import { Task } from '@lib/task'
 
-// Custom error types for testing
+
 type TestError = {
   message: string
   canRetry: boolean
@@ -16,7 +17,7 @@ type NetworkError = {
   reason: string
 }
 
-// TypeScript assertion functions for type narrowing
+
 function assertIsSuccess<T, E>(result: Result<T, E>): asserts result is Result<T, E> & { ok: true } {
   expect(result.ok).toBe(true)
 }
@@ -25,8 +26,6 @@ function assertIsFailure<T, E>(result: Result<T, E>): asserts result is Result<T
   expect(result.ok).toBe(false)
 }
 
-
-// Helper function to run task and get result
 async function runTask<T, E, TaskIO extends Partial<IO>>(
   task: Task<T, E, TaskIO>,
   io = {} as TaskIO,
@@ -35,9 +34,6 @@ async function runTask<T, E, TaskIO extends Partial<IO>>(
   return task.run(io, signal)
 }
 
-// ============================================================================
-// FUNCTOR LAWS
-// ============================================================================
 
 test('Functor identity law: task.map(x => x) ≡ task', async () => {
   const task = Task.of<number>(42)
@@ -76,7 +72,7 @@ test('Functor composition produces expected mathematical result', async () => {
   const result = await runTask(composed)
 
   assertIsSuccess(result)
-  expect(result.value).toBe(11) // (5 * 2) + 1 = 11
+  expect(result.value).toBe(11)
 })
 
 test('Map preserves errors unchanged', async () => {
@@ -89,10 +85,6 @@ test('Map preserves errors unchanged', async () => {
   expect(result.error.message).toBe('test error')
   expect(result.error.canRetry).toBe(true)
 })
-
-// ============================================================================
-// STATIC METHODS
-// ============================================================================
 
 test('Task.of creates task with correct success value', async () => {
   const task = Task.of<number>(42)
@@ -121,10 +113,6 @@ test('Task.create allows custom task implementation', async () => {
   assertIsSuccess(result)
   expect(result.value).toBe('custom result')
 })
-
-// ============================================================================
-// MONAD LAWS
-// ============================================================================
 
 test('Monad left identity law: Task.of(a).flatMap(f) ≡ f(a)', async () => {
   const f = (x: number) => Task.of<number>(x * 2)
@@ -185,7 +173,7 @@ test('Monad associativity produces expected mathematical result', async () => {
   const result = await runTask(assoc)
 
   assertIsSuccess(result)
-  expect(result.value).toBe(11) // (5 * 2) + 1 = 11
+  expect(result.value).toBe(11)
 })
 
 test('FlatMap propagates errors from source task', async () => {
@@ -208,10 +196,6 @@ test('FlatMap propagates errors from chained task', async () => {
   expect(result.error.code).toBe(500)
   expect(result.error.reason).toBe('server error')
 })
-
-// ============================================================================
-// ERROR HANDLING
-// ============================================================================
 
 test('MapError transforms error type correctly', async () => {
   const errorTask = Task.reject<string, TestError>({ message: 'original error', canRetry: true })
@@ -297,15 +281,11 @@ test('orElseMap passes through successful values unchanged', async () => {
   expect(result.value).toBe(100)
 })
 
-// ============================================================================
-// METHOD CHAINING
-// ============================================================================
-
 test('Complex method chaining produces correct mathematical result', async () => {
   const chainedTask = Task.of<number>(10)
-  .map(x => x * 2)           // 20
-  .flatMap(x => Task.of<number>(x + 5))  // 25
-  .map(x => x / 5)           // 5
+  .map(x => x * 2)
+  .flatMap(x => Task.of<number>(x + 5))
+  .map(x => x / 5)
 
   const result = await runTask(chainedTask)
 
@@ -328,9 +308,9 @@ test('Error handling in method chains with recovery', async () => {
 
 test('Method chaining preserves type safety through transformations', async () => {
   const typedChain = Task.of<number>(42)
-  .map(x => x.toString())        // number -> string
-  .map(s => s.length)            // string -> number
-  .flatMap(n => Task.of<boolean>(n > 0))  // number -> boolean
+  .map(x => x.toString())
+  .map(s => s.length)
+  .flatMap(n => Task.of<boolean>(n > 0))
 
   const result = await runTask(typedChain)
 
@@ -339,59 +319,62 @@ test('Method chaining preserves type safety through transformations', async () =
   expect(result.value).toBe(true)
 })
 
-// ============================================================================
-// IO CONTEXT
-// ============================================================================
-
 test('Task correctly uses numeric IO context properties', async () => {
-  interface TestIOBasic extends Partial<IO> {
-    value?: number
-  }
-
-  const ioTask = Task.create<number, never, TestIOBasic>(async (io: TestIOBasic) => {
-    return { ok: true, value: (io.value || 0) * 2 }
+  const testIO = defineIO({
+    async getValue(): Promise<number> {
+      return 21
+    }
   })
 
-  const ioContext: TestIOBasic = { value: 21 }
-  const result = await runTask(ioTask, ioContext)
+  const ioTask = Task.create<number, never, Pick<typeof testIO, 'getValue'>>(async (io) => {
+    const value = await io.getValue()
+    return { ok: true, value: value * 2 }
+  })
+
+  const result = await runTask(ioTask, testIO)
 
   assertIsSuccess(result)
   expect(result.value).toBe(42)
 })
 
 test('Task works with extended string IO context', async () => {
-  interface TestIO extends Partial<IO> {
-    testValue?: string
-  }
-
-  const extendedIOTask = Task.create<string, never, TestIO>(async (io: TestIO) => {
-    return { ok: true, value: io.testValue || 'default' }
+  const testIO = defineIO({
+    async getTestValue(): Promise<string> {
+      return 'custom'
+    }
   })
 
-  const result = await runTask(extendedIOTask, { testValue: 'custom' })
+  const extendedIOTask = Task.create<string, never, Pick<typeof testIO, 'getTestValue'>>(async (io) => {
+    const value = await io.getTestValue()
+    return { ok: true, value }
+  })
+
+  const result = await runTask(extendedIOTask, testIO)
 
   assertIsSuccess(result)
   expect(result.value).toBe('custom')
 })
 
-test('Task handles missing IO context gracefully', async () => {
-  interface TestIO extends Partial<IO> {
-    optionalValue?: string
-  }
-
-  const ioTask = Task.create<string, never, TestIO>(async (io: TestIO) => {
-    return { ok: true, value: io.optionalValue || 'fallback' }
+test('Task handles partial IO context gracefully', async () => {
+  const fullIO = defineIO({
+    async requiredOperation(): Promise<string> {
+      return 'success'
+    },
+    async optionalOperation(): Promise<string> {
+      return 'not used'
+    }
   })
 
-  const result = await runTask(ioTask, {})
+  const ioTask = Task.create<string, never, Pick<typeof fullIO, 'requiredOperation'>>(async (io) => {
+    const value = await io.requiredOperation()
+    return { ok: true, value }
+  })
+
+  const result = await runTask(ioTask, fullIO)
 
   assertIsSuccess(result)
-  expect(result.value).toBe('fallback')
+  expect(result.value).toBe('success')
 })
-
-// ============================================================================
-// SIGNAL HANDLING
-// ============================================================================
 
 test('Task completes normally without cancellation signal', async () => {
   const cancellableTask = Task.create<string, TestError, {}>(async (_io: {}, signal?: AbortSignal) => {
@@ -437,10 +420,6 @@ test('Task can handle pre-aborted signal', async () => {
   expect(result.error.message).toBe('Task was cancelled')
 })
 
-// ============================================================================
-// EDGE CASES
-// ============================================================================
-
 test('Task handles synchronous success creation', async () => {
   const syncTask = Task.create<string, never, {}>(async () => {
     return { ok: true, value: 'immediate success' }
@@ -465,7 +444,7 @@ test('Task handles synchronous error creation', async () => {
 
 test('Task handles async computation with delay', async () => {
   const asyncTask = Task.create<number, never, {}>(async () => {
-    await new Promise(resolve => setTimeout(resolve, 1)) // Small delay
+    await new Promise(resolve => setTimeout(resolve, 1))
     return { ok: true, value: 123 }
   })
 
@@ -483,6 +462,5 @@ test('Task properly types union error types in flatMap chains', async () => {
   const result = await runTask(combined)
 
   assertIsFailure(result)
-  // The error could be either TestError or NetworkError due to union type
   expect(result.error).toBeDefined()
 })
