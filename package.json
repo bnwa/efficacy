@@ -2,7 +2,6 @@
   "name": "efficacy",
   "module": "index.ts",
   "devDependencies": {
-    "@biomejs/biome": "2.2.2",
     "tsx": "^4.20.5"
   },
   "peerDependencies": {
