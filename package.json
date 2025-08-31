@@ -1,5 +1,5 @@
 {
-  "name": "task",
+  "name": "efficacy",
   "module": "index.ts",
   "devDependencies": {
     "@biomejs/biome": "2.2.2",
