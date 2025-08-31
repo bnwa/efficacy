@@ -1,6 +1,5 @@
 # Efficacy
-Lil Bit Opinionated Monadic Types for Async Operations with
-Typed IO Dependencies
+Types for validation and async operations with typed IO dependencies
 
 ## Core Concepts
 
