@@ -1,9 +1,9 @@
 /**
  * Efficacy - Functional types for validation and async operations with typed IO dependencies
- * 
+ *
  * This module provides a comprehensive set of functional programming utilities for:
  * - Validation and assertion with detailed error reporting
- * - Result types for error handling without exceptions  
+ * - Result types for error handling without exceptions
  * - Task types for async operations with dependency injection
  * - Stream types for progress-aware async operations
  * - IO operation definitions with type safety
@@ -13,7 +13,7 @@
 export {
   type ValidationError,
   type Valid,
-  type Invalid, 
+  type Invalid,
   type Assert,
   valid,
   invalid,

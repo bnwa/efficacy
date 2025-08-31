@@ -16,11 +16,6 @@ import { withCode } from '@lib/assert'
 import { withContext } from '@lib/assert'
 
 
-type TestError = {
-  message: string
-  canRetry: boolean
-}
-
 type Sex = 'm' | 'f'
 
 class Person {
