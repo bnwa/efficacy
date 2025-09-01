@@ -8,11 +8,37 @@ on:
       - main
 
 jobs:
-  publish:
+  test-and-release:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
-      id-token: write # The OIDC ID token is used for authentication with JSR.
+      contents: write # Required for semantic-release to create releases and push commits
+      issues: write   # Required for semantic-release to manage GitHub issues
+      pull-requests: write # Required for semantic-release to manage pull requests
+      id-token: write # The OIDC ID token is used for authentication with JSR
     steps:
       - uses: actions/checkout@v4
-      - run: npx jsr publish
+        with:
+          fetch-depth: 0 # Required for semantic-release to access commit history
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Run tests
+        run: bun test
+
+      - name: Semantic Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+#          NPM_TOKEN: ${{ secrets.NPM_TOKEN }} # Optional: if you plan to publish to npm as well
+        run: npx semantic-release
+
+      - name: Publish to JSR
+        # Only run if semantic-release created a new version
+        if: success()
+        run: npx jsr publish
